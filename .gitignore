@@ -1,11 +1,10 @@
 node_modules/
 dist/
 build/
+.next/
+coverage/
 .env
 .env.local
 *.log
-npm-debug.log*
 .DS_Store
-coverage/
-.vite/
-frontend/dist/
+apps/api/prisma/migrations/dev.db*

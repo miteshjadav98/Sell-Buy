@@ -1,124 +1,76 @@
 name: sell-buy
 
+# Local development stack. Application services are commented in until their
+# Dockerfiles land (Step 4); today this brings up everything the API needs.
+
 services:
-  mongo:
-    image: mongo:7
+  postgres:
+    image: postgres:16-alpine
     restart: unless-stopped
+    environment:
+      POSTGRES_USER: sellbuy
+      POSTGRES_PASSWORD: sellbuy
+      POSTGRES_DB: sellbuy
     ports:
-      - '27017:27017'
+      - '5432:5432'
     volumes:
-      - mongo-data:/data/db
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand("ping")']
+      test: ['CMD-SHELL', 'pg_isready -U sellbuy']
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
 
-  # Single-node Kafka in KRaft mode — no ZooKeeper needed.
-  kafka:
-    image: apache/kafka:3.9.0
+  redis:
+    image: redis:7-alpine
     restart: unless-stopped
+    # AOF on: Redis holds BullMQ queues, and a lost queue is a lost invoice.
+    command: redis-server --appendonly yes
     ports:
-      # Host apps reach the broker on localhost:9092; containers use kafka:29092.
-      - '9092:9092'
-    environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-      CLUSTER_ID: sell-buy-cluster-0001
+      - '6379:6379'
     volumes:
-      - kafka-data:/var/lib/kafka/data
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
-  auth:
-    build:
-      context: .
-      args:
-        SERVICE_DIR: auth
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
     restart: unless-stopped
-    depends_on: [mongo, kafka]
-    environment: &service-env
-      NODE_ENV: production
-      JWT_SECRET: ${JWT_SECRET:-super-secret-change-me}
-      MONGO_URI: mongodb://mongo:27017
-      KAFKA_BROKERS: kafka:29092
-      KAFKA_ENABLED: 'true'
-    ports:
-      - '4001:4001'
-
-  catalog:
-    build:
-      context: .
-      args:
-        SERVICE_DIR: catalog
-    restart: unless-stopped
-    depends_on: [mongo, kafka]
-    environment: *service-env
-    ports:
-      - '4002:4002'
-
-  order:
-    build:
-      context: .
-      args:
-        SERVICE_DIR: order
-    restart: unless-stopped
-    depends_on: [mongo, kafka, catalog]
     environment:
-      <<: *service-env
-      CATALOG_SERVICE_URL: http://catalog:4002
+      MEILI_MASTER_KEY: local-dev-master-key
+      MEILI_ENV: development
     ports:
-      - '4003:4003'
+      - '7700:7700'
+    volumes:
+      - meili-data:/meili_data
 
-  notification:
-    build:
-      context: .
-      args:
-        SERVICE_DIR: notification
+  # S3-compatible object storage for product media.
+  minio:
+    image: minio/minio:latest
     restart: unless-stopped
-    depends_on: [mongo, kafka]
-    environment: *service-env
-    ports:
-      - '4004:4004'
-
-  gateway:
-    build:
-      context: .
-      args:
-        SERVICE_DIR: gateway
-    restart: unless-stopped
-    depends_on: [auth, catalog, order, notification]
+    command: server /data --console-address ":9001"
     environment:
-      NODE_ENV: production
-      JWT_SECRET: ${JWT_SECRET:-super-secret-change-me}
-      MONGO_URI: mongodb://mongo:27017
-      AUTH_SERVICE_URL: http://auth:4001
-      CATALOG_SERVICE_URL: http://catalog:4002
-      ORDER_SERVICE_URL: http://order:4003
-      NOTIFICATION_SERVICE_URL: http://notification:4004
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - '4000:4000'
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
 
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        # Baked into the bundle, so it must be the URL the browser can reach.
-        VITE_API_URL: http://localhost:4000
+  # Catches every outbound email in development — nothing reaches a real inbox.
+  mailhog:
+    image: mailhog/mailhog:latest
     restart: unless-stopped
-    depends_on: [gateway]
     ports:
-      - '5173:80'
+      - '1025:1025'
+      - '8025:8025'
 
 volumes:
-  mongo-data:
-  kafka-data:
+  postgres-data:
+  redis-data:
+  meili-data:
+  minio-data:

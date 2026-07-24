@@ -1,197 +1,158 @@
 # Sell-Buy
 
-A small marketplace where independent sellers register a shop and customers buy from them,
-built as **event-driven microservices**: Node.js + TypeScript, MongoDB, Kafka, React.
+A multi-vendor commerce platform — customers buy, sellers run storefronts, admins govern the
+marketplace. Built as a **modular monolith** on Clean Architecture: NestJS + PostgreSQL +
+Prisma + Redis on the backend, Next.js 15 on the front.
 
-Services never call each other to *change* state. They publish facts to Kafka and whoever
-cares subscribes — so a service can be down, restarted, or replaced without the others
-needing to know.
-
----
-
-## Architecture
-
-```
-                      ┌──────────────┐
-   browser ─────────► │   gateway    │  :4000   one origin, routes by path prefix
-   (React SPA)        └──────┬───────┘
-                             │  HTTP
-        ┌────────────┬───────┴──────┬──────────────────┐
-        ▼            ▼              ▼                  ▼
-   ┌─────────┐  ┌─────────┐   ┌─────────┐      ┌──────────────┐
-   │  auth   │  │ catalog │   │  order  │      │ notification │
-   │  :4001  │  │  :4002  │   │  :4003  │      │    :4004     │
-   └────┬────┘  └────┬────┘   └────┬────┘      └──────┬───────┘
-        │            │             │                  │
-        │   sellbuy_auth / _catalog / _orders / _notifications  (MongoDB, one DB per service)
-        │            │             │                  │
-        └────────────┴──────┬──────┴──────────────────┘
-                            ▼
-                  ┌───────────────────┐
-                  │   Kafka  :9092    │   the only way state changes propagate
-                  └───────────────────┘
-```
-
-| Service          | Owns                                   | Publishes                                            | Consumes                              |
-| ---------------- | -------------------------------------- | ---------------------------------------------------- | ------------------------------------- |
-| **auth**         | users, passwords, JWTs                 | `user.registered`                                     | —                                     |
-| **catalog**      | shops, products, stock                 | `shop.created`, `product.created`, `inventory.*`      | `order.created`                       |
-| **order**        | orders, checkout saga                  | `order.created`, `order.confirmed`, `order.cancelled` | `inventory.reserved`, `inventory.rejected` |
-| **notification** | per-user alerts                        | —                                                     | everything                            |
-| **gateway**      | nothing — pure routing                 | —                                                     | —                                     |
-
-### The checkout saga
-
-Placing an order is not a single transaction — no service can lock another's database.
-It is a choreographed saga instead:
-
-```
-customer clicks "Place order"
-        │
-        ▼
-order-service  writes order as `pending`  ──publish──► order.created
-                                                            │
-                                                            ▼
-                                          catalog-service decrements stock
-                                          conditionally ($gte guard)
-                                                            │
-                        ┌───────────────────────────────────┴────────────┐
-                        ▼ enough stock                                   ▼ not enough
-              publish inventory.reserved                     roll back items already
-                        │                                    taken, publish inventory.rejected
-                        ▼                                                │
-          order → `confirmed`, publish order.confirmed     order → `cancelled` + reason
-                        │                                                │
-                        └──────────────► notification-service ◄──────────┘
-                                    writes alerts for buyer and sellers
-```
-
-The UI shows the order as `pending` and polls until it settles — the async boundary is
-visible rather than hidden.
-
-**Consistency details that matter:**
-
-- **Idempotency.** Kafka delivers at least once. Catalog keeps a `Reservation` row with a
-  unique index on `orderId`, so a redelivered `order.created` cannot decrement stock twice.
-  Order-service transitions only match `status: 'pending'`, making its handlers idempotent too.
-- **No oversell.** Stock is taken with a conditional update (`stock: { $gte: quantity }`), so
-  two concurrent orders for the last item cannot both succeed.
-- **Compensation.** If item 3 of 4 fails, the items already taken in that attempt are put back
-  before the rejection is published.
-- **Price snapshots.** Item price is copied onto the order at checkout, so a later price change
-  never rewrites an order that was already placed.
-
-### Deliberate design choices
-
-- **One database per service.** No service reads another's collections. The only shared truth
-  is what travels on the bus.
-- **The gateway is not a trust boundary.** It routes; it does not verify tokens. Every service
-  verifies the JWT itself, so exposing a service directly is still safe.
-- **Checkout reads the catalog over HTTP.** Price and seller must be correct at the instant the
-  order is written, and an eventually-consistent local copy could be stale. State *changes* are
-  still events only — this is a read, not a command.
-- **Handler failures don't stall the partition.** A failing handler is logged and skipped; a
-  production system would route it to a dead-letter topic.
+> **Build status.** This repository is being built in the ten steps below.
+> **Steps 1–3 are done and verified** (architecture, database, backend foundation with a
+> complete auth vertical slice). Steps 4–10 are not written yet — see
+> [Progress](#progress) for exactly what exists today.
 
 ---
 
-## Running it
+## Documentation
 
-### Everything in Docker
+| Document | Contents |
+| --- | --- |
+| [Architecture](docs/01-architecture.md) | HLD, LLD, SOLID mapping, design patterns, rate limiting, circuit breaker |
+| [Database](docs/02-database.md) | ER diagram, schema decisions, indexing strategy |
+| [Sequence diagrams](docs/03-sequence-diagrams.md) | Registration, login/refresh rotation, checkout, search, returns |
+| [Deployment](docs/04-deployment.md) | Docker, Kubernetes, CI/CD, scaling, DR |
+| [Folder structure](docs/05-folder-structure.md) | Full tree and the rule for where code goes |
+
+---
+
+## Quick start
 
 ```bash
-docker compose up --build
-```
+cp .env.example .env          # then set the two JWT secrets
+docker compose up -d          # postgres, redis, meilisearch, minio, mailhog
 
-Then open **http://localhost:5173**. The gateway is on `http://localhost:4000`.
-
-### Local development (hot reload)
-
-```bash
-cp .env.example .env
+cd apps/api
 npm install
-npm run infra:up      # Mongo + Kafka in Docker, nothing else
-npm run dev           # gateway, 4 services and the Vite dev server together
+npx prisma migrate dev        # create the schema
+npm run dev                   # http://localhost:4000
 ```
 
-| URL                     | What                    |
-| ----------------------- | ----------------------- |
-| http://localhost:5173   | React app               |
-| http://localhost:4000   | API gateway             |
-| localhost:27017         | MongoDB                 |
-| localhost:9092          | Kafka                   |
+| URL | What |
+| --- | --- |
+| http://localhost:4000/api/docs | Swagger UI |
+| http://localhost:4000/health/ready | Readiness probe |
+| http://localhost:4000/health/dependencies | Circuit breaker states |
+| http://localhost:8025 | Mailhog — catches all outbound email |
 
-No broker handy? Set `KAFKA_ENABLED=false` and the services still serve HTTP — events become
-no-ops, so orders stay `pending` and no alerts are written.
+---
 
-### Useful commands
+## Architecture in one screen
+
+```
+apps/api/src/
+├── config/           typed env, validated at boot — bad config never reaches runtime
+├── core/             domain primitives (Entity, Money, Result) — zero framework imports
+├── common/           guards, filters, interceptors, decorators, error hierarchy
+├── infrastructure/   prisma, redis, rate limiting, circuit breaker, payment adapters
+└── modules/          feature modules, each layered domain → application → infra → presentation
+```
+
+**The dependency rule:** source dependencies point inward. `domain/` knows nothing about
+NestJS, Prisma or HTTP; `application/` declares the interfaces it needs; `infrastructure/`
+implements them. Swapping Postgres, Razorpay or REST touches exactly one layer.
+
+### SOLID, concretely
+
+| Principle | In this codebase |
+| --- | --- |
+| **S** | One use case per class. `RegisterUseCase` creates the account and nothing else — email, seller setup and analytics subscribe to the event. |
+| **O** | A new payment provider is one new adapter class plus one line in the factory. No existing file changes. |
+| **L** | Razorpay, Stripe and COD satisfy `IPaymentGateway` identically. No caller branches on which one it got. |
+| **I** | `IUserReadRepository` and `IUserWriteRepository` are separate, so a read-only use case cannot write and a test fake stays small. |
+| **D** | Use cases inject `USER_READ_REPOSITORY` (a symbol they own). `auth.module.ts` decides Prisma answers it. |
+
+### Patterns and where they earn their place
+
+Repository (persistence) · Strategy (payment, shipping, discounts) · Factory (gateway
+selection) · Adapter (Razorpay, Stripe, S3, Meilisearch) · Builder (catalog query composition) ·
+Singleton (Prisma, Redis pools) · Decorator (`@Roles`, `@RateLimit`, `@Public`) · Observer
+(domain events) · Unit of Work (`PrismaTransactionManager`) · Specification (coupon eligibility)
+· Circuit Breaker (every outbound call).
+
+Full rationale for each: [docs/01-architecture.md](docs/01-architecture.md#4-design-patterns-in-use).
+
+---
+
+## The two resilience pieces
+
+### Rate limiting — `infrastructure/rate-limit/`
+
+Redis-backed **sliding window**, executed as an atomic Lua script.
+
+- **Distributed**, because a per-process counter with 10 pods means the real limit is 10× the
+  configured one and changes whenever the HPA scales.
+- **Sliding**, because a fixed window lets 2× the budget through across the boundary — exactly
+  where an attacker aims.
+- **Atomic**, because a separate GET-then-INCR has a race that concurrent requests slip through.
+- **Fails open.** If Redis is down, requests are allowed and the failure is logged loudly.
+  A limiter that takes the site offline during a cache outage has caused the very thing it
+  exists to prevent.
+
+Three tiers: 300/min per IP globally, 1000/min per authenticated user, and per-route policies
+declared next to the endpoint (`login` 5/min keyed by **IP + email**, so neither rotating
+proxies nor targeting one account resets the budget).
+
+### Circuit breaker — `infrastructure/resilience/`
+
+Prevents one vendor outage from becoming a full checkout outage: a gateway that starts taking
+30s to time out will exhaust the connection pool and take down cash-on-delivery orders that
+never needed it.
+
+`CLOSED → OPEN → HALF_OPEN → CLOSED`, with per-dependency thresholds, per-call timeouts,
+rolling failure windows, limited half-open probing, and fallbacks (search degrades to Postgres;
+payments re-route to the other gateway). Retries use exponential backoff **with jitter** so a
+recovering service is not hit by a synchronised herd.
+
+Verified by 11 unit tests — `npm test` in `apps/api`.
+
+---
+
+## Progress
+
+| Step | Status |
+| --- | --- |
+| **1. Architecture** | ✅ HLD, LLD, ER, sequence, deployment, folder structure |
+| **2. Database** | ✅ Full Prisma schema, 40+ models, validated + client generated |
+| **3. Backend** | ✅ Config, core, common, Prisma/Redis, rate limiting, circuit breaker, payment adapters + factory, Swagger, health probes |
+| **4. Frontend** | ⬜ Next.js 15 app |
+| **5. Authentication** | 🟡 Register / login / refresh rotation / logout-all done. OTP, Google OAuth, password reset pending |
+| **6. Product module** | ⬜ |
+| **7. Cart** | ⬜ |
+| **8. Checkout** | ⬜ |
+| **9. Orders** | ⬜ |
+| **10. Admin panel** | ⬜ |
+
+### What is verified
+
+- `npx prisma validate` — schema valid, client generates
+- `npx tsc --noEmit` — API typechecks clean
+- `npx nest build` — compiles and emits
+- `npx jest` — 11/11 circuit breaker tests pass
+
+Not yet verified at runtime: nothing has been executed against a live PostgreSQL or Redis in
+this environment, so migrations and the repository implementations are compile-checked but not
+integration-tested.
+
+---
+
+## Commands
 
 ```bash
-npm run build       # compile shared package, all services, and the frontend
-npm run typecheck   # type-check everything without emitting
-npm run infra:down  # stop Mongo and Kafka
+cd apps/api
+
+npm run dev                 # watch mode
+npm run build               # compile
+npm run typecheck           # types only
+npm test                    # unit tests
+npm run db:migrate          # create + apply a migration
+npm run db:seed             # roles, permissions, demo catalog
+npm run db:studio           # browse data
 ```
-
----
-
-## Trying the flow
-
-1. **Sign up as a seller** → you land on the dashboard → register a shop → add a product with stock.
-2. **Sign up as a customer** (different email) → the product is on the home page → add to cart → place order.
-3. The order shows **pending**, then flips to **confirmed** within a second or two — that is the
-   saga completing across three services.
-4. **Alerts** shows what the notification service wrote from the event stream. The seller sees
-   "New sale" on their own account.
-5. To see the failure path, set a product's stock to 0 from the dashboard after adding it to your
-   cart, then check out — the order settles as **cancelled** with a reason.
-
----
-
-## API
-
-All routes go through the gateway. Authenticated routes take `Authorization: Bearer <jwt>`.
-
-| Method   | Route                        | Who         | Purpose                            |
-| -------- | ---------------------------- | ----------- | ---------------------------------- |
-| `POST`   | `/api/auth/register`         | anyone      | Sign up as `customer` or `seller`  |
-| `POST`   | `/api/auth/login`            | anyone      | Get a JWT                          |
-| `GET`    | `/api/auth/me`               | any user    | Current user                       |
-| `GET`    | `/api/shops`                 | anyone      | List shops                         |
-| `GET`    | `/api/shops/mine`            | seller      | Own shop                           |
-| `GET`    | `/api/shops/:id`             | anyone      | Shop with its products             |
-| `POST`   | `/api/shops`                 | seller      | Register a shop (one per seller)   |
-| `GET`    | `/api/products?search=`      | anyone      | Browse / search                    |
-| `GET`    | `/api/products/mine`         | seller      | Own listings                       |
-| `POST`   | `/api/products`              | seller      | Add a product                      |
-| `PATCH`  | `/api/products/:id`          | seller      | Edit / restock own product         |
-| `DELETE` | `/api/products/:id`          | seller      | Remove own product                 |
-| `POST`   | `/api/orders`                | customer    | Place an order                     |
-| `GET`    | `/api/orders/mine`           | customer    | Own orders                         |
-| `GET`    | `/api/orders/seller`         | seller      | Orders containing own products     |
-| `GET`    | `/api/notifications`         | any user    | Own alerts                         |
-
----
-
-## Layout
-
-```
-packages/common/       config, logger, Mongo, EventBus, JWT auth, error handling
-services/gateway/      path-prefix router
-services/auth/         users + JWT issuing
-services/catalog/      shops, products, stock reservation consumer
-services/order/        orders + checkout saga consumer
-services/notification/ event-driven alerts (no write API)
-frontend/              React + Vite SPA
-```
-
-Event names and payloads live in one place — `packages/common/src/events.ts`. Both sides of
-every topic are typed against it, so a producer and consumer cannot drift apart silently.
-
----
-
-## Notes and next steps
-
-- `JWT_SECRET` in `.env.example` is a placeholder. Set a real one before deploying anything.
-- Not built yet, in rough priority order: payments, a dead-letter topic for failed handlers,
-  refresh tokens, a transactional outbox so a DB write and its event commit atomically,
-  and automated tests.
