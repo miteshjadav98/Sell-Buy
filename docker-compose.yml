@@ -1,0 +1,124 @@
+name: sell-buy
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand("ping")']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Single-node Kafka in KRaft mode — no ZooKeeper needed.
+  kafka:
+    image: apache/kafka:3.9.0
+    restart: unless-stopped
+    ports:
+      # Host apps reach the broker on localhost:9092; containers use kafka:29092.
+      - '9092:9092'
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      CLUSTER_ID: sell-buy-cluster-0001
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  auth:
+    build:
+      context: .
+      args:
+        SERVICE_DIR: auth
+    restart: unless-stopped
+    depends_on: [mongo, kafka]
+    environment: &service-env
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-super-secret-change-me}
+      MONGO_URI: mongodb://mongo:27017
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_ENABLED: 'true'
+    ports:
+      - '4001:4001'
+
+  catalog:
+    build:
+      context: .
+      args:
+        SERVICE_DIR: catalog
+    restart: unless-stopped
+    depends_on: [mongo, kafka]
+    environment: *service-env
+    ports:
+      - '4002:4002'
+
+  order:
+    build:
+      context: .
+      args:
+        SERVICE_DIR: order
+    restart: unless-stopped
+    depends_on: [mongo, kafka, catalog]
+    environment:
+      <<: *service-env
+      CATALOG_SERVICE_URL: http://catalog:4002
+    ports:
+      - '4003:4003'
+
+  notification:
+    build:
+      context: .
+      args:
+        SERVICE_DIR: notification
+    restart: unless-stopped
+    depends_on: [mongo, kafka]
+    environment: *service-env
+    ports:
+      - '4004:4004'
+
+  gateway:
+    build:
+      context: .
+      args:
+        SERVICE_DIR: gateway
+    restart: unless-stopped
+    depends_on: [auth, catalog, order, notification]
+    environment:
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-super-secret-change-me}
+      MONGO_URI: mongodb://mongo:27017
+      AUTH_SERVICE_URL: http://auth:4001
+      CATALOG_SERVICE_URL: http://catalog:4002
+      ORDER_SERVICE_URL: http://order:4003
+      NOTIFICATION_SERVICE_URL: http://notification:4004
+    ports:
+      - '4000:4000'
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the bundle, so it must be the URL the browser can reach.
+        VITE_API_URL: http://localhost:4000
+    restart: unless-stopped
+    depends_on: [gateway]
+    ports:
+      - '5173:80'
+
+volumes:
+  mongo-data:
+  kafka-data:
