@@ -18,10 +18,10 @@ sell-buy/
 └── docker-compose.yml
 ```
 
-## Backend — `apps/api`
+## Backend — `apps/backend`
 
 ```
-apps/api/
+apps/backend/
 ├── prisma/
 │   ├── schema.prisma                 # single source of truth for the DB
 │   ├── migrations/
@@ -117,10 +117,10 @@ modules/<feature>/
 
 If a file imports both `@nestjs/common` and lives in `domain/`, that is a bug.
 
-## Frontend — `apps/web`
+## Frontend — `apps/frontend`
 
 ```
-apps/web/
+apps/frontend/
 ├── src/
 │   ├── app/                          # Next.js App Router
 │   │   ├── (shop)/                   # storefront: home, category, product, cart

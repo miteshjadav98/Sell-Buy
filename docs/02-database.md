@@ -1,6 +1,6 @@
 # Step 2 — Database
 
-PostgreSQL, modelled in Prisma. Full schema: [`apps/api/prisma/schema.prisma`](../apps/api/prisma/schema.prisma).
+PostgreSQL, modelled in Prisma. Full schema: [`apps/backend/prisma/schema.prisma`](../apps/backend/prisma/schema.prisma).
 
 ## ER diagram
 

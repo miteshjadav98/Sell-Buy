@@ -29,7 +29,7 @@ Prisma + Redis on the backend, Next.js 15 on the front.
 cp .env.example .env          # then set the two JWT secrets
 docker compose up -d          # postgres, redis, meilisearch, minio, mailhog
 
-cd apps/api
+cd apps/backend
 npm install
 npx prisma migrate dev        # create the schema
 npm run dev                   # http://localhost:4000
@@ -47,7 +47,7 @@ npm run dev                   # http://localhost:4000
 ## Architecture in one screen
 
 ```
-apps/api/src/
+apps/backend/src/
 ├── config/           typed env, validated at boot — bad config never reaches runtime
 ├── core/             domain primitives (Entity, Money, Result) — zero framework imports
 ├── common/           guards, filters, interceptors, decorators, error hierarchy
@@ -111,7 +111,7 @@ rolling failure windows, limited half-open probing, and fallbacks (search degrad
 payments re-route to the other gateway). Retries use exponential backoff **with jitter** so a
 recovering service is not hit by a synchronised herd.
 
-Verified by 11 unit tests — `npm test` in `apps/api`.
+Verified by 11 unit tests — `npm test` in `apps/backend`.
 
 ---
 
@@ -146,7 +146,7 @@ integration-tested.
 ## Commands
 
 ```bash
-cd apps/api
+cd apps/backend
 
 npm run dev                 # watch mode
 npm run build               # compile

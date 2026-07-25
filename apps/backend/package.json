@@ -1,5 +1,5 @@
 {
-  "name": "@sell-buy/api",
+  "name": "@sell-buy/backend",
   "version": "1.0.0",
   "private": true,
   "description": "Sell-Buy commerce API — NestJS, Prisma, PostgreSQL, Redis",
