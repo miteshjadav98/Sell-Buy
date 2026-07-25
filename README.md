@@ -124,8 +124,8 @@ Verified by 11 unit tests — `npm test` in `apps/api`.
 | **3. Backend** | ✅ Config, core, common, Prisma/Redis, rate limiting, circuit breaker, payment adapters + factory, Swagger, health probes |
 | **4. Frontend** | ⬜ Next.js 15 app |
 | **5. Authentication** | 🟡 Register / login / refresh rotation / logout-all done. OTP, Google OAuth, password reset pending |
-| **6. Product module** | ⬜ |
-| **7. Cart** | ⬜ |
+| **6. Product module** | ✅ Catalog vertical slice — products, variants, options, categories, brands; seller create/submit, admin approve/reject, storefront listing + detail |
+| **7. Cart** | ✅ Hybrid user/guest carts, live price + stock, save-for-later, guest→user merge on login |
 | **8. Checkout** | ⬜ |
 | **9. Orders** | ⬜ |
 | **10. Admin panel** | ⬜ |

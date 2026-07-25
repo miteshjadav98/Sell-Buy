@@ -13,6 +13,8 @@ import { RateLimitModule } from './infrastructure/rate-limit/rate-limit.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { PaymentInfrastructureModule } from './infrastructure/payments/payment-infrastructure.module';
 import { AuthModule } from './modules/auth/presentation/auth.module';
+import { CartModule } from './modules/cart/presentation/cart.module';
+import { CatalogModule } from './modules/catalog/presentation/catalog.module';
 import { HealthModule } from './modules/health/health.module';
 import { JwtModule } from '@nestjs/jwt';
 
@@ -51,6 +53,8 @@ import { JwtModule } from '@nestjs/jwt';
     // --- Features ---
     HealthModule,
     AuthModule,
+    CatalogModule,
+    CartModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
