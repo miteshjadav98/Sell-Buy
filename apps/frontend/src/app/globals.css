@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+/**
+ * Sell-Buy design tokens.
+ *
+ * The organising idea is the tax invoice. Indian commerce runs on itemised
+ * receipts — GST broken out, figures in a right-aligned column, a hairline above
+ * the total — and that artifact is also the honest expression of what this
+ * platform does: the price is computed server-side, the tax is already inside
+ * it, nothing appears at the end that was not there at the start.
+ *
+ * So money has exactly one treatment everywhere it appears, and everything
+ * around it stays quiet. Rules are used where a receipt uses them (above a
+ * total, between line items) and nowhere else, so a hairline always means
+ * "something is being summed" rather than "a section ended".
+ */
+@theme {
+  /* Ink on invoice stock, not black on white — both are slightly warm. */
+  --color-ink: #141b22;
+  --color-ink-muted: #5a6672;
+  --color-ink-faint: #8a939c;
+  --color-paper: #fbfaf7;
+  --color-card: #ffffff;
+  --color-rule: #e4e0d8;
+  --color-rule-strong: #cfc9bd;
+
+  /* Indigo — the dye that took its name from this country. Trustworthy
+     without being the marketplace blue every competitor already owns. */
+  --color-indigo: #2b4c7e;
+  --color-indigo-deep: #1d3557;
+  --color-indigo-wash: #eef2f8;
+
+  /* Vermilion is reserved for money saved. Nothing else may use it, which is
+     what keeps a discount legible at a glance. */
+  --color-vermilion: #c1440e;
+  --color-vermilion-wash: #fdf0e9;
+
+  --color-moss: #3f6b4a;
+  --color-moss-wash: #eef4ef;
+
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-inter-tight), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --radius-card: 4px;
+  --radius-chip: 2px;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Focus is never removed, only restyled — keyboard users are not an edge case. */
+  :focus-visible {
+    outline: 2px solid var(--color-indigo);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: var(--color-indigo);
+    color: #fff;
+  }
+}
+
+@layer utilities {
+  /**
+   * Every figure representing money, a quantity or an identifier is set in
+   * tabular figures so digits align in a column. Proportional numerals make a
+   * price list look ragged and a total look approximate.
+   */
+  .tnum {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+/**
+ * The receipt prints itself in on page load: one line settles at a time, the
+ * way a thermal printer feeds. It is the only orchestrated motion on the site —
+ * everything else is hover states — because one deliberate moment reads as
+ * craft and five read as decoration.
+ */
+@keyframes print-line {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.print-line {
+  animation: print-line 340ms cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 420ms cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
