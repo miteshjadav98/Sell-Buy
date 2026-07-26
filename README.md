@@ -5,9 +5,9 @@ marketplace. Built as a **modular monolith** on Clean Architecture: NestJS + Pos
 Prisma + Redis on the backend, Next.js 15 on the front.
 
 > **Build status.** This repository is being built in the ten steps below.
-> **Steps 1–3 are done and verified** (architecture, database, backend foundation with a
-> complete auth vertical slice). Steps 4–10 are not written yet — see
-> [Progress](#progress) for exactly what exists today.
+> **Steps 1–4 and 6–8 are done** — architecture, database, backend foundation, the Next.js
+> storefront, catalogue, cart and checkout. Authentication is partial; orders and the admin
+> panel are not written yet. See [Progress](#progress) for exactly what exists today.
 
 ---
 
@@ -29,14 +29,23 @@ Prisma + Redis on the backend, Next.js 15 on the front.
 cp .env.example .env          # then set the two JWT secrets
 docker compose up -d          # postgres, redis, meilisearch, minio, mailhog
 
+# API
 cd apps/backend
 npm install
 npx prisma migrate dev        # create the schema
+npm run db:seed               # roles, permissions, demo catalogue
 npm run dev                   # http://localhost:4000
+
+# Storefront, in a second terminal
+cd apps/frontend
+npm install
+cp .env.example .env.local    # points at http://localhost:4000/api/v1
+npm run dev                   # http://localhost:3000
 ```
 
 | URL | What |
 | --- | --- |
+| http://localhost:3000 | Storefront |
 | http://localhost:4000/api/docs | Swagger UI |
 | http://localhost:4000/health/ready | Readiness probe |
 | http://localhost:4000/health/dependencies | Circuit breaker states |
@@ -53,6 +62,14 @@ apps/backend/src/
 ├── common/           guards, filters, interceptors, decorators, error hierarchy
 ├── infrastructure/   prisma, redis, rate limiting, circuit breaker, payment adapters
 └── modules/          feature modules, each layered domain → application → infra → presentation
+
+apps/frontend/src/
+├── app/              App Router pages
+├── components/       ui primitives, layout, product, address
+├── features/         one folder per domain: API client + React Query hooks
+├── store/            Zustand — only what is *open*, never server data
+├── lib/              fetch wrapper, money formatting, utils
+└── types/            the API contract, mirrored
 ```
 
 **The dependency rule:** source dependencies point inward. `domain/` knows nothing about
@@ -114,6 +131,32 @@ recovering service is not hit by a synchronised herd.
 Verified by 11 unit tests — `npm test` in `apps/backend`.
 
 ---
+
+## The storefront
+
+Design direction is **the receipt**. Indian commerce runs on the itemised tax invoice, and
+that artifact is also the honest expression of what this backend does — so money gets exactly
+one treatment everywhere it appears (tabular mono, right-aligned, hairline above a total), and
+hairlines appear only where a receipt uses them. A rule on this site means "these were summed",
+never "a section ended". The hero is a working receipt showing a ₹999 tee whose GST is already
+inside the number: the claim is demonstrated, not asserted.
+
+Ink and invoice-paper neutrals, **indigo** as the accent, and **vermilion reserved strictly for
+money saved** — nothing else may use it, which is what keeps a discount legible at a glance.
+Fraunces for display, Inter Tight for UI, IBM Plex Mono for every figure.
+
+Three decisions worth knowing before editing it:
+
+- **React Query owns server state; Zustand owns only what is open.** The cart lives in the query
+  cache, never in the client store. Duplicating server data into a store and then fighting to
+  keep the two in sync is the most common state bug in an app like this.
+- **The access token lives in a module variable, never `localStorage`.** Any script on the page
+  can read storage, so one XSS becomes a session that outlives the tab. The httpOnly refresh
+  cookie survives reloads and is exchanged on boot. Refresh is deduplicated behind a single
+  in-flight promise — tokens rotate on use, so parallel refreshes would present superseded
+  tokens and log the user out for loading a page.
+- **Filters live in the URL.** A filtered view you cannot share, bookmark or reach with the back
+  button is not a filtered view.
 
 ## Checkout, and why it is shaped that way
 
@@ -177,7 +220,7 @@ both strategies already exist.
 | **1. Architecture** | ✅ HLD, LLD, ER, sequence, deployment, folder structure |
 | **2. Database** | ✅ Full Prisma schema, 40+ models, validated + client generated |
 | **3. Backend** | ✅ Config, core, common, Prisma/Redis, rate limiting, circuit breaker, payment adapters + factory, Swagger, health probes |
-| **4. Frontend** | ⬜ Next.js 15 app |
+| **4. Frontend** | ✅ Next.js 15 storefront — browse, product detail with variant picker, cart, auth, checkout, address book |
 | **5. Authentication** | 🟡 Register / login / refresh rotation / logout-all done. OTP, Google OAuth, password reset pending |
 | **6. Product module** | ✅ Catalog vertical slice — products, variants, options, categories, brands; seller create/submit, admin approve/reject, storefront listing + detail |
 | **7. Cart** | ✅ Hybrid user/guest carts, live price + stock, save-for-later, guest→user merge on login |
@@ -192,10 +235,19 @@ both strategies already exist.
 - `npx nest build` — compiles and emits
 - `npx jest` — 44/44 pass (11 circuit breaker, 18 checkout pricing, 15 coupon rules)
 - Nest container compiles — every provider in the DI graph resolves
+- Frontend: `tsc --noEmit` clean, `next lint` clean, `next build` emits 11 routes, and the
+  production server returns 200 for `/`, `/products`, `/login`, `/cart`, `/checkout`
 
 Not yet verified at runtime: nothing has been executed against a live PostgreSQL or Redis in
 this environment, so migrations and the repository implementations are compile-checked but not
-integration-tested.
+integration-tested. The storefront has likewise been rendered only against an API that was not
+running — it degrades to honest empty states, which is by design, but no end-to-end purchase
+has been made.
+
+**Known gaps.** The gateway checkout sheet (Razorpay/Stripe SDK) is not wired into the
+storefront, so online payments reach `PENDING_PAYMENT` and are then released by the expiry
+sweep; cash on delivery completes end to end. Order history has no endpoint until Step 9, so
+the confirmation screen reads the placed order from `sessionStorage`.
 
 ---
 
