@@ -29,8 +29,8 @@ export function useAddresses() {
  * invariant in a second place — so the list is refetched and the server stays
  * the only thing that knows which address is the default.
  */
-function useAddressMutation<TVariables>(
-  mutationFn: (variables: TVariables) => Promise<unknown>,
+function useAddressMutation<TData, TVariables>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
   successMessage: string,
 ) {
   const queryClient = useQueryClient();
