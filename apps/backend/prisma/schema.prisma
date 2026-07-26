@@ -590,6 +590,19 @@ model Product {
   ratingCount   Int     @default(0)
   totalSold     Int     @default(0)
 
+  /// The lowest price among *active* variants — the "from ₹x" a card shows.
+  ///
+  /// Denormalised because sorting a listing by price is otherwise inexpressible:
+  /// ordering by a related record's MIN is not something Prisma Client can emit,
+  /// so without this column "price: low to high" silently falls back to some
+  /// other ordering and quietly lies to the shopper. Null when a product has no
+  /// active variant, and sorted last in that case.
+  ///
+  /// Maintained by `ProductPrismaRepository.refreshPriceRange` — every write
+  /// that touches variant price or isActive must call it, inside the same
+  /// transaction.
+  minPrice Decimal? @db.Decimal(12, 2)
+
   isFeatured  Boolean   @default(false)
   taxRate     Decimal   @default(18) @db.Decimal(5, 2)
   metaTitle   String?
@@ -617,6 +630,8 @@ model Product {
   @@index([brandId])
   @@index([status, publishedAt])
   @@index([ratingAverage])
+  // Serves the price-sorted storefront listing, which always filters on status.
+  @@index([status, minPrice])
   @@map("products")
 }
 

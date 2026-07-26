@@ -122,6 +122,8 @@ export class ProductPrismaRepository implements IProductReadRepository, IProduct
         }
       }
 
+      await this.refreshPriceRange(tx, product.id);
+
       return tx.product.findUniqueOrThrow({
         where: { id: product.id },
         include: { variants: { select: { id: true, price: true, isActive: true } } },
@@ -129,6 +131,31 @@ export class ProductPrismaRepository implements IProductReadRepository, IProduct
     });
 
     return this.toDomain(row);
+  }
+
+  /**
+   * Recomputes `products.minPrice` from the product's active variants.
+   *
+   * Every write that changes a variant's price or `isActive` must call this in
+   * the same transaction as the write itself. A stale minPrice is not a cosmetic
+   * problem: it is the sort key for the listing, so a product drifts to the wrong
+   * position in a price-sorted grid and nothing anywhere throws.
+   *
+   * Deliberately takes the transaction client rather than reaching for
+   * `this.prisma`, so it cannot silently commit outside the caller's transaction.
+   */
+  private async refreshPriceRange(tx: Prisma.TransactionClient, productId: string): Promise<void> {
+    const { _min } = await tx.productVariant.aggregate({
+      where: { productId, isActive: true },
+      _min: { price: true },
+    });
+
+    await tx.product.update({
+      where: { id: productId },
+      // Null when no variant is active — such a product cannot be bought, and
+      // `nulls: 'last'` keeps it out of the way of ones that can.
+      data: { minPrice: _min.price ?? null },
+    });
   }
 
   async findById(id: string): Promise<Product | null> {
@@ -312,12 +339,14 @@ export class ProductPrismaRepository implements IProductReadRepository, IProduct
   private buildOrderBy(sort: ProductQuery['sort']): Prisma.ProductOrderByWithRelationInput[] {
     // `id` is always the final tiebreaker so the cursor has a stable boundary.
     switch (sort) {
+      // Both directions key off `minPrice` — the same "from ₹x" the card shows,
+      // so the ordering matches the number the shopper is reading. Products with
+      // no active variant sort last either way rather than heading the "low to
+      // high" page with an empty price.
       case 'price_asc':
-        // Note: orders by the product's own columns; a per-variant min-price sort
-        // needs a denormalised column, which the reviews/inventory step adds.
-        return [{ ratingAverage: 'desc' }, { id: 'asc' }];
+        return [{ minPrice: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }];
       case 'price_desc':
-        return [{ ratingAverage: 'desc' }, { id: 'asc' }];
+        return [{ minPrice: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }];
       case 'rating':
         return [{ ratingAverage: 'desc' }, { id: 'asc' }];
       case 'popular':

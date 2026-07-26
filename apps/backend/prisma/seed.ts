@@ -427,6 +427,25 @@ async function main(): Promise<void> {
     }
   }
 
+  /**
+   * The seed writes variants directly rather than through
+   * `ProductPrismaRepository`, so it also has to maintain the denormalised
+   * `products.minPrice` the price sort orders by. Left null, every seeded
+   * product would sort last under "price: low to high" — a broken sort that
+   * looks like a broken *seed*, which is a slow thing to diagnose.
+   */
+  await prisma.$executeRaw`
+    UPDATE products p
+    SET "minPrice" = sub.min_price
+    FROM (
+      SELECT "productId", MIN(price) AS min_price
+      FROM product_variants
+      WHERE "isActive" = true
+      GROUP BY "productId"
+    ) AS sub
+    WHERE p.id = sub."productId"
+  `;
+
   // ---- Coupons ------------------------------------------------------------
   const now = new Date();
   const nextYear = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
