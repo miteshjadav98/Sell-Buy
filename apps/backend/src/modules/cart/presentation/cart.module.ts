@@ -13,19 +13,27 @@ import { RemoveCartItemUseCase } from '../application/use-cases/remove-cart-item
 import { SaveForLaterUseCase } from '../application/use-cases/save-for-later.use-case';
 import { UpdateCartItemUseCase } from '../application/use-cases/update-cart-item.use-case';
 import { CartPrismaRepository } from '../infrastructure/cart.prisma.repository';
-import { InventoryPrismaReader } from '../infrastructure/inventory.prisma.reader';
 import { VariantPricingPrismaReader } from '../infrastructure/variant-pricing.prisma.reader';
+import { InventoryModule } from '../../inventory/inventory.module';
+import { INVENTORY_AVAILABILITY_READER } from '../../inventory/domain/ports/inventory.ports';
 import { CartController } from './cart.controller';
 
 /**
  * Composition root for the cart. The use cases ask for CART_REPOSITORY,
  * VARIANT_PRICING_READER and INVENTORY_READER — interfaces they own — and this
- * module decides Prisma answers all three. The two readers are separate adapters
- * over catalogue and inventory tables, so the cart never imports either module.
+ * module decides who answers them.
  *
- * PrismaService comes from the @Global PrismaModule, so nothing to import here.
+ * INVENTORY_READER is answered by the inventory module's exported availability
+ * port rather than a local adapter. Stock arithmetic (on-hand − reserved, across
+ * warehouses) has exactly one correct definition, and two modules each keeping
+ * their own copy of it is how "available" comes to mean two different numbers.
+ * The cart still depends only on its own interface — the binding is the one line
+ * that knows who satisfies it.
+ *
+ * PrismaService comes from the @Global PrismaModule, so nothing else to import.
  */
 @Module({
+  imports: [InventoryModule],
   controllers: [CartController],
   providers: [
     // --- Use cases + the shared view assembler ---
@@ -41,7 +49,7 @@ import { CartController } from './cart.controller';
     // --- Port bindings (Dependency Inversion) ---
     { provide: CART_REPOSITORY, useClass: CartPrismaRepository },
     { provide: VARIANT_PRICING_READER, useClass: VariantPricingPrismaReader },
-    { provide: INVENTORY_READER, useClass: InventoryPrismaReader },
+    { provide: INVENTORY_READER, useExisting: INVENTORY_AVAILABILITY_READER },
   ],
 })
 export class CartModule {}

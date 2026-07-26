@@ -115,6 +115,61 @@ Verified by 11 unit tests — `npm test` in `apps/backend`.
 
 ---
 
+## Checkout, and why it is shaped that way
+
+The order path is the one place in this system where being wrong costs money, so
+the boundaries are worth stating explicitly:
+
+```
+┌─ ONE transaction ─────────────────────────────────────────┐
+│  SELECT … FOR UPDATE on every inventory row in the basket │
+│  verify stock against the locked figures                  │
+│  price from the database — never from the client          │
+│  apply the coupon (Specification), tax + shipping (Strategy)│
+│  INSERT order (PENDING_PAYMENT) + order_items             │
+│  reserve stock (reserved += qty), redeem coupon, convert cart│
+└────────────────────── COMMIT ─────────────────────────────┘
+   then, OUTSIDE it: call the payment gateway
+```
+
+**The lock is not optional.** Reading availability without it is the classic
+oversell: two checkouts both see "1 left", both pass validation, both reserve,
+and one customer gets an apology. Rows are locked in a deterministic order so two
+overlapping baskets cannot deadlock.
+
+**The gateway call is outside the transaction.** A transaction holds row locks,
+and sitting inside one for the eight seconds a gateway takes to answer blocks
+every other buyer of the same SKU — one slow vendor becomes a site-wide stall.
+The cost is a window where an order exists with no payment intent, which is what
+the compensating cancel and the expiry sweeper are for.
+
+**Stock is reserved, not decremented.** The customer may abandon the gateway
+page. Reservation blocks oversell immediately; a sweep releases it after 15
+minutes. Stock is *committed* when the sale becomes irreversible — payment
+capture for prepaid, dispatch for COD.
+
+**Three independent idempotency guards**, because each covers a different
+failure:
+
+| Guard | Stops |
+| --- | --- |
+| `Idempotency-Key` → unique index on `orders.idempotencyKey` | A double-tap on "Pay" becoming two orders and two charges |
+| Unique `(gateway, eventId)` on `webhook_events` | A gateway redelivering the same capture a dozen times |
+| Settlement only advances an order out of `PENDING_PAYMENT` | The browser callback and the webhook both confirming the same order |
+
+**Money is integer minor units everywhere.** `0.1 + 0.2 !== 0.3`, and a
+marketplace discovers that slowly, in its ledger. Discounts are split across
+lines by largest-remainder so the parts sum to exactly the whole — rounding each
+share independently loses a paisa per order into a reconciliation report forever.
+
+**GST is inside the displayed price**, extracted rather than appended: a ₹999
+listing is ₹999 at the till, and tax is computed on the *discounted* value
+because no tax is owed on money the customer never paid. Swapping to
+tax-exclusive pricing for another market is one line in `checkout.module.ts` —
+both strategies already exist.
+
+---
+
 ## Progress
 
 | Step | Status |
@@ -126,7 +181,7 @@ Verified by 11 unit tests — `npm test` in `apps/backend`.
 | **5. Authentication** | 🟡 Register / login / refresh rotation / logout-all done. OTP, Google OAuth, password reset pending |
 | **6. Product module** | ✅ Catalog vertical slice — products, variants, options, categories, brands; seller create/submit, admin approve/reject, storefront listing + detail |
 | **7. Cart** | ✅ Hybrid user/guest carts, live price + stock, save-for-later, guest→user merge on login |
-| **8. Checkout** | ⬜ |
+| **8. Checkout** | ✅ Single-transaction order placement with `FOR UPDATE` stock locks, GST-inclusive tax + weight-banded shipping (Strategy), coupon eligibility (Specification), stock reservation, idempotent placement, gateway intents, signed webhooks, 15-minute expiry sweep |
 | **9. Orders** | ⬜ |
 | **10. Admin panel** | ⬜ |
 
@@ -135,7 +190,8 @@ Verified by 11 unit tests — `npm test` in `apps/backend`.
 - `npx prisma validate` — schema valid, client generates
 - `npx tsc --noEmit` — API typechecks clean
 - `npx nest build` — compiles and emits
-- `npx jest` — 11/11 circuit breaker tests pass
+- `npx jest` — 44/44 pass (11 circuit breaker, 18 checkout pricing, 15 coupon rules)
+- Nest container compiles — every provider in the DI graph resolves
 
 Not yet verified at runtime: nothing has been executed against a live PostgreSQL or Redis in
 this environment, so migrations and the repository implementations are compile-checked but not

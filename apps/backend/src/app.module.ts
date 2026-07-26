@@ -12,10 +12,15 @@ import { RateLimitGuard } from './infrastructure/rate-limit/rate-limit.guard';
 import { RateLimitModule } from './infrastructure/rate-limit/rate-limit.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { PaymentInfrastructureModule } from './infrastructure/payments/payment-infrastructure.module';
+import { EventsModule } from './infrastructure/events/events.module';
+import { AccountModule } from './modules/account/presentation/account.module';
 import { AuthModule } from './modules/auth/presentation/auth.module';
 import { CartModule } from './modules/cart/presentation/cart.module';
 import { CatalogModule } from './modules/catalog/presentation/catalog.module';
+import { CheckoutModule } from './modules/checkout/presentation/checkout.module';
 import { HealthModule } from './modules/health/health.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
+import { ScheduleModule } from '@nestjs/schedule';
 import { JwtModule } from '@nestjs/jwt';
 
 /**
@@ -48,13 +53,21 @@ import { JwtModule } from '@nestjs/jwt';
     RedisModule,
     RateLimitModule,
     PaymentInfrastructureModule,
+    EventsModule,
     JwtModule.register({ global: true }),
+
+    // Drives the reservation-expiry sweep that releases stock held by abandoned
+    // checkouts. Without it, every abandoned cart permanently consumes inventory.
+    ScheduleModule.forRoot(),
 
     // --- Features ---
     HealthModule,
     AuthModule,
+    AccountModule,
     CatalogModule,
+    InventoryModule,
     CartModule,
+    CheckoutModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

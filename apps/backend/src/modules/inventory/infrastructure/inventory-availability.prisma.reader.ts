@@ -1,18 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { IInventoryReader } from '../domain/ports/cart.ports';
+import { IInventoryAvailabilityReader } from '../domain/ports/inventory.ports';
 
 /**
  * Reads sellable stock: on-hand minus reserved, summed across every warehouse a
  * variant lives in. Subtracting `reserved` (units committed to unpaid orders) is
- * what stops two shoppers being promised the same last unit — the cart sees what
+ * what stops two shoppers being promised the same last unit — callers see what
  * is *actually* free to sell, not what physically sits on a shelf.
  *
  * A variant with no inventory rows reads as zero, which is the safe answer:
  * unknown stock is treated as no stock rather than infinite.
+ *
+ * This read is not locked and can be stale the moment it returns. That is fine
+ * for a cart badge or a checkout preview, and NOT fine for the decision to take
+ * payment — that path uses `lockForVariants` inside the order transaction.
  */
 @Injectable()
-export class InventoryPrismaReader implements IInventoryReader {
+export class InventoryAvailabilityPrismaReader implements IInventoryAvailabilityReader {
   constructor(private readonly prisma: PrismaService) {}
 
   async available(variantId: string): Promise<number> {
@@ -27,7 +31,7 @@ export class InventoryPrismaReader implements IInventoryReader {
     const result = new Map<string, number>();
     if (variantIds.length === 0) return result;
 
-    // One grouped query for the whole cart rather than N point reads.
+    // One grouped query for the whole basket rather than N point reads.
     const rows = await this.prisma.inventoryItem.groupBy({
       by: ['variantId'],
       where: { variantId: { in: variantIds } },
