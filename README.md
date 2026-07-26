@@ -26,11 +26,14 @@ Prisma + Redis on the backend, Next.js 15 on the front.
 ## Quick start
 
 ```bash
-cp .env.example .env          # then set the two JWT secrets
 docker compose up -d          # postgres, redis, meilisearch, minio, mailhog
 
 # API
 cd apps/backend
+cp ../../.env.example .env    # NOTE: apps/backend/.env, not the repo root —
+                              # Prisma and Nest both resolve it from here.
+                              # Then set the two JWT secrets (32+ chars):
+                              #   openssl rand -base64 48
 npm install
 npx prisma migrate dev        # create the schema
 npm run db:seed               # roles, permissions, demo catalogue
@@ -50,6 +53,21 @@ npm run dev                   # http://localhost:3000
 | http://localhost:4000/health/ready | Readiness probe |
 | http://localhost:4000/health/dependencies | Circuit breaker states |
 | http://localhost:8025 | Mailhog — catches all outbound email |
+
+Seeded sign-ins (all pre-verified, since the OTP flow is Step 5):
+
+| Account | Password |
+| --- | --- |
+| `customer@sell-buy.local` | `Customer@12345` |
+| `seller@sell-buy.local` | `Seller@12345` |
+| `admin@sell-buy.local` | `Admin@12345` |
+
+### Routing
+
+`API_PREFIX` is the prefix **only** — `enableVersioning` appends the version
+segment separately, so `API_PREFIX=api` yields `/api/v1/…`. Putting `api/v1` in
+the variable produces `/api/v1/v1/…`. Health probes are version-neutral and
+excluded from the prefix, so they stay at `/health/*` across API versions.
 
 ---
 

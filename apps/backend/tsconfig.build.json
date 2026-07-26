@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  /**
+   * The build compiles `src` only.
+   *
+   * `tsconfig.json` also includes `prisma/**` and `test/**` so that typecheck
+   * covers the seed script and the specs — but including them here would widen
+   * the inferred rootDir to the package root and emit `dist/src/main.js`,
+   * silently breaking `start:prod`, which points at `dist/main.js`.
+   */
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "prisma", "test", "**/*.spec.ts"]
+}

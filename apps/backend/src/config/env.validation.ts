@@ -10,7 +10,12 @@ import { z } from 'zod';
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
-  API_PREFIX: z.string().default('api/v1'),
+  /**
+   * The prefix ONLY — the version segment is appended by `enableVersioning`.
+   * Setting this to 'api/v1' produces '/api/v1/v1/…', because both mechanisms
+   * apply.
+   */
+  API_PREFIX: z.string().default('api'),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
 
   // --- Data stores ---

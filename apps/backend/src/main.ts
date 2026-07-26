@@ -48,7 +48,14 @@ async function bootstrap(): Promise<void> {
     exposedHeaders: ['x-correlation-id', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
   });
 
-  app.setGlobalPrefix(config.get<string>('app.apiPrefix', 'api/v1'), {
+  /**
+   * Prefix and version are applied by two separate mechanisms and both are in
+   * play: the prefix contributes `/api`, `enableVersioning` contributes `/v1`,
+   * and together they produce `/api/v1/…`. Putting the version into
+   * API_PREFIX as well yields `/api/v1/v1/…`, which is exactly the sort of
+   * thing that only shows up the first time somebody actually calls the API.
+   */
+  app.setGlobalPrefix(config.get<string>('app.apiPrefix', 'api'), {
     exclude: ['health/live', 'health/ready', 'health/dependencies'],
   });
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });

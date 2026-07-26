@@ -1,4 +1,4 @@
-import { Controller, Get, Module } from '@nestjs/common';
+import { Controller, Get, Module, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/auth.decorators';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -10,8 +10,16 @@ import { CircuitBreakerRegistry } from '../../infrastructure/resilience/circuit-
  * differently — conflating them causes restart loops during a database blip,
  * because the process is perfectly healthy and simply cannot serve yet.
  */
+/**
+ * Version-neutral, and excluded from the global prefix in `main.ts`.
+ *
+ * A probe URL is configuration in a Kubernetes manifest, not an API contract a
+ * client negotiates. Versioning it would mean `/v1/health/ready` today and a
+ * silently broken liveness check the day the API moves to v2 — pods restarting
+ * in a loop for a reason nobody connects to a version bump.
+ */
 @ApiTags('Health')
-@Controller('health')
+@Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(
     private readonly prisma: PrismaService,
